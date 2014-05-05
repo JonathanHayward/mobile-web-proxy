@@ -43,7 +43,6 @@ def init():
     global action_url
     global cgi_executable_path
     global documentation_path
-    global document_url
     global full_python_path
     global has_installation_been_customized
     global private_data_directory
@@ -167,14 +166,13 @@ that it can be be accessible from that URL? This should be something like
 
 The Mobile Web Proxy client executable path""")
     cgi_executable_path = get_value(cgi_executable_path)
-    if get_script_mode() == "install":
-        output(\
+    output(\
 """
 What is the path on the system for Mobile Web Proxy documentation? This should
 be something like "/usr/doc/mobile/" or "~/doc/mobile/".
 
 Documentation path""")
-        documentation_path = get_value(documentation_path)
+    documentation_path = get_value(documentation_path)
     output(\
 """
 What is the full path to python? This should be something like
@@ -212,7 +210,6 @@ You have selected the following options:
 
     Mobile Web Proxy URL: """ + action_url + """
     Mobile Web Proxy CGI executable path: """ + cgi_executable_path + """
-    Document URL: """ + document_url + """
     Full Python path: """ + full_python_path + """
     Private data directory: """ + private_data_directory)
     output(\

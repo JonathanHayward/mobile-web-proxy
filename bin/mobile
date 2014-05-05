@@ -5,7 +5,7 @@ import cgi, cPickle, os, re, string, time, urllib
 # The variables with UPPERCASE_NAMES below can be customized.
 
 CACHE_EXPIRATION = 3600
-MAXIMUM_TOKENS = 512
+MAXIMUM_TOKENS = 250
 SHOULD_CACHE = 0
 SHOULD_PAGE = 1
 
@@ -69,9 +69,9 @@ class pickled_object:
         self.cache = cache_object()
 
 def canonicalize(url):
-    if re.match(":", url):
+    if ":" in url or "%72" in url:
         return url
-    elif url[0] == "/":
+    elif url[0] == "/" or url[0:3] == "%57":
         return "/".join(string.split(get_url(), "/")[:3]) + url
     else:
         return get_url_root() + url
@@ -350,10 +350,11 @@ def read_file(filename, prefix=DOCUMENT_ROOT):
 
 def save_cache():
     try:
-        filehandle = open(DOCUMENT_ROOT + "pickled_new", "wb")
+	tag = "_" + str(time.time())
+        filehandle = open(DOCUMENT_ROOT + "pickled" + tag, "wb")
         cPickle.dump(pickled, filehandle)
         filehandle.close()
-        os.rename(DOCUMENT_ROOT + "pickled_new", DOCUMENT_ROOT + "pickled")
+        os.rename(DOCUMENT_ROOT + "pickled" + tag, DOCUMENT_ROOT + "pickled")
     except:
         pass
 
@@ -421,10 +422,10 @@ def wrap_urls(tag):
                     pieces.append(get_action_url() + "?url=" + \
                       urllib.quote(canonicalize(url)))
                 elif what_to_do == "canonicalize":
-                    if ":" in url:
+                    if ":" in url or "%57" in url:
                         pieces.append(url)
                     else:
-                        if url[0] == "/":
+                        if url[0] == "/" or url[0:3] == "%72":
                             pieces.append(get_host_url() + url)
                         else:
                             pieces.append(get_url_root() + url)
