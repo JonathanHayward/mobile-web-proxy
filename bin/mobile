@@ -1,0 +1,465 @@
+#!FULL_PYTHON_PATH
+
+import cgi, cPickle, os, re, string, time, urllib
+
+# The variables with UPPERCASE_NAMES below can be customized.
+
+CACHE_EXPIRATION = 3600
+MAXIMUM_TOKENS = 512
+SHOULD_CACHE = 0
+SHOULD_PAGE = 1
+
+# These variables should only be changed if you are moving files around.
+
+ACTION_URL = "FULL_ACTION_URL"
+DOCUMENT_ROOT = "DOCUMENT_ROOT_PATH"
+
+# You are invited to tinker with the code below.
+#
+# This code is (c) 2007:
+#    
+#    Jonathan Hayward
+#    jonathan.hayward@pobox.com
+#    http://JonathansCorner.com
+#
+# and is made available according to the terms of the Perl License (your
+# choice of the Artistic License or General Public License, as specified in
+# the documentation this software was provided with).
+
+class cache_object:
+    def __init__(self):
+        self.data = {}
+    def expire(self, age = CACHE_EXPIRATION):
+        threshold_time = time.time() - age
+        for key in self.data.keys():
+            if self.data[key].timestamp < threshold_time:
+                self.data.delete(key)
+    def get(self, url, unprocessed=0):
+        # Later see about things being out of date.
+        if url in self.data and self.data[url].valid:
+            if unprocessed:
+                return self.data[url].unprocessed
+            else:
+                return self.data[url].processed
+        else:
+            self.data[url] = cache_entry(url)
+            if self.data[url].valid:
+                if unprocessed:
+                    return self.data[url].unprocessed
+                else:
+                    return self.data[url].processed
+            else:
+                return [read_file("error_message")]
+
+class cache_entry:
+    def __init__(self, URL):
+        #try:
+            self.timestamp = time.time()
+            self.url = URL
+            filename = urllib.urlretrieve(URL)[0]
+            self.unprocessed = read_file(filename, "/")
+            os.remove(filename)
+            self.processed = process(self.unprocessed)
+            self.valid = 1
+        #except:
+            #self.valid = 0
+
+class pickled_object:
+    def __init__(self):
+        self.cache = cache_object()
+
+def canonicalize(url):
+    if re.match(":", url):
+        return url
+    elif url[0] == "/":
+        return "/".join(string.split(get_url(), "/")[:3]) + url
+    else:
+        return get_url_root() + url
+
+def condense_path(path):
+    """Condense double slashes in a path into a single slash."""
+    result = path
+    while re.match("[^/]+/\.\./", result) != None:
+        result = re.subn("[^/]+/\.\./", "", result, 1)[0]
+    while re.match("(?<!:)//", result) != None:
+        result = re.subn("(?<!:)//", "/", result, 1)[0]
+    return result
+
+def display_page_beginning():
+    print "Content-type: text/html";
+    print ""
+    header = read_file("header.html")
+    header = string.replace(header, "@TITLE@", get_title())
+    print header
+
+def display_page_body():
+    if get_url() != "":
+        print "<div>"
+        print "<p>"
+        workbench = cache.get(get_url())[get_tokens_to_skip():]
+        if should_page():
+            workbench = workbench[get_page() * get_maximum_tokens():\
+              (get_page() + 1) * get_maximum_tokens()]
+        print " ".join(workbench)
+        print "</p>"
+        print "</div>"
+    else:
+        print "<form action=\"" + get_action_url() + "\">"
+        print "<p>URL:<br>"
+        print "<input type=\"text\" name=\"url\"></p>"
+        if get_cgi("advanced") != "":
+            print "<p>Number of words to skip:<br>"
+            print "<input type=\"text\" name=\"tokens_to_skip\" " + \
+              "value=\"" + str(get_tokens_to_skip()) + "\"></p>"
+            print "<p>Start at page:<br>"
+            print "<input type=\"text\" name=\"page\" " + \
+              "value=\"" + str(get_page()) + "\"></p>"
+            # Should_page is left out.
+            print "<p>Rough words per page:<br>"
+            print "<input type=\"text\" name=\"maximum_tokens\" " + \
+              "value=\"" + str(get_maximum_tokens()) + "\"></p>"
+        print "<input type=\"submit\" value=\"Go!\">"
+        print "</form>"
+        if get_cgi("advanced") != "":
+            print "<p><a href=\"" + get_action_url() + \
+              "\">Simple Mode</a></p>"
+        else:
+            print "<p><a href=\"" + get_action_url() + \
+              "?advanced=yes\">Advanced Mode</a></p>"
+
+def display_page_end():
+    if should_page() and get_cgi("url") != "":
+        print "<p>"
+        if get_total_pages() == 1:
+            print "Page 1 of 1."
+        else:
+            print "Page " + str(get_page() + 1) + " of " + \
+              str(get_total_pages()) + ":"
+            if get_page() > 0:
+                print "<a href=\"" + get_action_url() + "?url=" + \
+                  urllib.quote(get_url()) + "&page=" + str(get_page() - 1) + \
+                  "&tokens_to_skip=" + get_cgi("tokens_to_skip", "0") + \
+                  "\">Previous</a>,"
+            else:
+                print "Previous,"
+            if get_page() + 1 < get_total_pages():
+                print "<a href=\"" + get_action_url() + "?url=" + \
+                  urllib.quote(get_url()) + "&page=" + str(get_page() + 1) + \
+                  "&tokens_to_skip=" + get_cgi("tokens_to_skip", "0") + \
+                  "\">Next</a>."
+            else:
+                print "Next."
+        print "</p>"
+    if get_url() != "":
+        print "<p>Mobile web proxy for: <a href=\"" + get_url() + "\">" + \
+          get_url() + "</a> (<a href=\"" + get_url() + \
+          "\">View original</a>).</p>"
+    print read_file("footer.html")
+
+def filter(tag):
+    expression = "</?\W*?(\w+)"
+    if re.match(expression, tag):
+        tag_name = re.match(expression, tag).group()
+        tag_name = re.sub("\W", "", tag_name)
+        tag_name = string.lower(tag_name)
+        if get_tag_blacklist() != []:
+            if tag_name in tag_blacklist:
+                return ""
+            else:
+                return wrap_urls(tag)
+        elif get_tag_whitelist() != []:
+            if tag_name in get_tag_whitelist():
+                return wrap_urls(tag)
+            else:
+                return ""
+        else:
+            return wrap_urls(tag)
+    else:
+        return ""
+
+def finish():
+    if should_cache():
+        save_cache()
+
+def get_action_url():
+    return ACTION_URL
+
+def get_cache():
+    global cache, pickled
+    try:
+        filehandle = open(DOCUMENT_ROOT + "pickled", "rb")
+        pickled = cPickle.load(filehandle)
+        filehandle.close()
+    except:
+        pickled = pickled_object()
+    cache = pickled.cache
+
+def get_cgi(field_name, default_value = ""):
+    if cgi.FieldStorage().has_key(field_name):
+        if type(cgi.FieldStorage()[field_name]) == type([]):
+            return cgi.FieldStorage()[field_name][0]
+        else:
+            return cgi.FieldStorage()[field_name].value
+    else:
+        return default_value
+
+def get_maximum_tokens():
+    try:
+        return int(get_cgi("maximum_tokens"), MAXIMUM_TOKENS)
+    except:
+        return MAXIMUM_TOKENS
+
+def get_host_url():
+    return "/".join(get_url().split("/")[0:3])
+
+def get_page():
+    try:
+        return int(get_cgi("page", "0"))
+    except:
+        return 0
+
+def get_tag_blacklist():
+    global tag_blacklist
+    if tag_blacklist != None:
+        return tag_blacklist
+    else:
+        interim = read_file("tag_blacklist")
+        interim = string.replace(interim, "\r", "")
+        result = string.split(interim, "\n")
+        while "" in result:
+            result.remove("")
+        tag_blacklist = result
+        return tag_blacklist
+
+def get_tag_contents(tag, index = 0):
+    file_contents = "".join(cache.get(get_url(), 1))
+    internal = get_tag_contents_internal(tag, file_contents)
+    if len(internal) > index:
+        return internal[index]
+    else:
+        return None
+
+def get_tag_contents_internal(tag, file_contents):
+    result = []
+    my_re = pattern = re.compile("<%s.*?>(.*?)</%s.*?>" % (tag, tag), \
+      re.IGNORECASE)
+    return my_re.findall(file_contents)
+
+def get_tag_whitelist():
+    global tag_whitelist
+    if tag_whitelist != None:
+        return tag_whitelist
+    else:
+        interim = read_file("tag_whitelist")
+        interim = string.replace(interim, "\r", "")
+        result = string.split(interim, "\n")
+        while "" in result:
+            result.remove("")
+        tag_whitelist = result
+        return tag_whitelist
+
+def get_tags_to_delete():
+    return ["script", "title"]
+
+def get_title():
+    try:
+        if get_tag_contents("title") != None:
+            return get_tag_contents("title")
+        else:
+            return "Mobile Web Proxy"
+    except:
+        return "Mobile Web Proxy"
+
+def get_tokens_to_skip():
+    try:
+        return int(get_cgi("tokens_to_skip"))
+    except:
+        return 0
+
+def get_total_pages():
+    if should_page():
+        return ((len(cache.get(get_url())[get_tokens_to_skip():]) \
+          - 1) / get_maximum_tokens()) + 1
+    else:
+        return 1
+
+def get_url():
+    interim = get_cgi("url")
+    if interim == "":
+        return ""
+    else:
+        if not ":" in interim:
+            interim = "http://" + interim
+        if len(interim.split("/")) < 3:
+            interim = interim + "/"
+        return interim
+
+def get_url_root():
+    if len(string.split(get_url(), "/")) > 3:
+        interim = string.split(get_url(), "/")
+        try:
+            interim[-1] = ""
+        except:
+            pass
+        return "/".join(interim)
+        return re.sub("/.*?$", "/", get_url())
+    else:
+        return get_url() + "/"
+
+def init():
+    global tag_blacklist, tag_whitelist
+    tag_blacklist = None
+    tag_whitelist = None
+    get_cache()
+    cache.expire()
+
+def insensitize(word):
+    result = []
+    for index in range(len(word)):
+        result.append("[")
+        result.append(string.lower(word[index]))
+        result.append(string.upper(word[index]))
+        result.append("]")
+    return "".join(result)
+
+def process(document=""):
+    workbench = document
+    workbench = string.replace(workbench, "\r", " ")
+    workbench = string.replace(workbench, "\n", " ")
+    workbench = string.replace(workbench, "&nbsp;", " ")
+    workbench = re.sub("\s+", " ", workbench)
+    workbench = re.sub("<!--.*?-->", "", workbench)
+    for tag in get_tags_to_delete():
+        expression = "<" + insensitize(tag) + ".*?</" + insensitize(tag) + ">"
+        workbench = re.sub(expression, "", workbench)
+    workbench = re.sub("\s+", " ", workbench)
+    return tokenize(workbench)
+
+def read_file(filename, prefix=DOCUMENT_ROOT):
+    """Read the contents of a file and return it as a string."""
+    try:
+        if string.find(condense_path(filename), condense_path(prefix)) == 0:
+            filehandle = open(filename, "rb")
+        else:
+            filehandle = open(prefix + filename, "rb")
+        result = filehandle.read()
+        filehandle.close()
+        return result
+    except:
+        return ""
+
+def save_cache():
+    try:
+        filehandle = open(DOCUMENT_ROOT + "pickled_new", "wb")
+        cPickle.dump(pickled, filehandle)
+        filehandle.close()
+        os.rename(DOCUMENT_ROOT + "pickled_new", DOCUMENT_ROOT + "pickled")
+    except:
+        pass
+
+def should_cache():
+    return SHOULD_CACHE
+
+def should_page():
+    try:
+        return int(get_cgi("should_page", SHOULD_PAGE))
+    except:
+        return SHOULD_PAGE
+
+def tokenize(to_tokenize):
+    result = ""
+    current_tag = ""
+    current_token = ""
+    in_tag = 0
+    result = []
+    for index in range(len(to_tokenize)):
+        current_character = to_tokenize[index]
+        if current_character == "<":
+            current_tag = current_character
+            in_tag = 1
+        elif in_tag:
+            current_tag += current_character
+            if current_character == ">":
+                in_tag = 0
+                current_token += filter(current_tag)
+                current_tag = ""
+        elif current_character == " ":
+            result.append(current_token)
+            current_token = ""
+        else:
+            current_token += current_character
+    return result
+
+def wrap_urls(tag):
+    #return tag
+    # Taken from Insight, (c) Jonathan Hayward 2002-7.
+    split_tag = [tag]
+    interim = "".join(split_tag)
+    actions = [("a", "href", "wrap"), \
+      ("a", "target", "override: self"), \
+      ("applet", "code", "canonicalize"), \
+      ("body", "background", "canonicalize"), \
+      ("form", "action", "canonicalize"), \
+      ("img", "src", "canonicalize"), \
+      ("input", "src", "canonicalize"), \
+      ("link", "href", "canonicalize"), ]
+    for triplet in actions:
+        interim = "".join(split_tag)
+        pieces = []
+        tag_name = insensitize(triplet[0])
+        attribute_name = insensitize(triplet[1])
+        what_to_do = triplet[2]
+        pattern = r"(<" + tag_name + r"[^>]+" + attribute_name + \
+          r"\s*=\s*" + "[\"']" + r"?[^\s" + "\"'" + r">]*)"
+        split_tag = re.split(pattern, interim)
+        for piece in split_tag:
+            if re.match(pattern, piece):
+                inner_pieces = re.split("([\"'\s]+)", piece)
+                url = inner_pieces.pop()
+                pieces += inner_pieces
+                if what_to_do == "wrap":
+                    pieces.append(get_action_url() + "?url=" + \
+                      urllib.quote(canonicalize(url)))
+                elif what_to_do == "canonicalize":
+                    if ":" in url:
+                        pieces.append(url)
+                    else:
+                        if url[0] == "/":
+                            pieces.append(get_host_url() + url)
+                        else:
+                            pieces.append(get_url_root() + url)
+                elif what_to_do == "override: _self":
+                    pieces.append("_self")
+            else:
+                pieces.append(piece)
+        split_tag = pieces
+    interim = split_tag
+    return "".join(interim)
+    #return re.sub(newline_placeholder, "\n", "".join(interim))
+
+if __name__ == "__main__":
+    init()
+    display_page_beginning()
+    display_page_body()
+    display_page_end()
+    finish()
+
+# Getting page:
+# If page is not in cache or cache is out of date:
+    # Fetch the webpage and store in cache with a timestamp.
+
+# Prepping page:
+# Iterate over character by character.
+# Have a working substring, used to build up tokens (added to token list), and
+# keeping an "in tag" substring which may be processed.
+# Tokens are split according to one or more whitespace characters.
+
+# Displaying page:
+# Print page header.
+# Select tokens from (the current page number times the number of tokens per
+# page) to (((the current page number plus one) times the number of tokens per
+# page) minus one), join them with linefeeds.
+# Output the result.
+# Print "Next page" link.
+# Print page footer.
+
