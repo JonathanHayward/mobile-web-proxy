@@ -9,11 +9,12 @@ LEGAL
 
     License
 
-        This software is copyright 2003 by Jonathan Hayward, and licensed
+        This software is copyright 2003-8 by Jonathan Hayward, and licensed
 	and licensed to you under the your choice of the original Artistic
-        License, which should be present in the file doc/artistic.txt, and the
+        License, which should be present in the file doc/artistic.txt, the
         General Public License version 2.0 (or, at your option, any later
-        version), which should be present in the file doc/gpl.txt.
+        version), which should be present in the file doc/gpl.txt, or the MIT
+        License, which should be present in the file doc/mit.txt.
 
     Warrantee
 

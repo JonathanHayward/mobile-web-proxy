@@ -11,6 +11,8 @@ DEFAULT_SITE = None # Change DEFAULT_SITE to a string with a full URL to have
                     #
                     # DEFAULT_SITE = "http://JonathansCorner.com/"
                     #
+                    # *with* beginning "http://" and ending "/".
+                    #
                     # If you are using this script to try to make a
                     # mobile-friendly version of your site, you will want to
                     # set SHOULD_PROXY_EXTERNAL_LINKS just below to 0.
@@ -297,16 +299,16 @@ def get_total_pages():
 def get_url():
     interim = get_cgi("url", DEFAULT_SITE)
     if interim:
-        if DEFAULT_SITE:
-            return DEFAULT_SITE
-        else:
-            return ""
-    else:
         if not ":" in interim:
             interim = "http://" + interim
         if len(interim.split("/")) < 3:
             interim = interim + "/"
         return interim
+    else:
+        if DEFAULT_SITE:
+            return DEFAULT_SITE
+        else:
+            return ""
 
 def get_url_root():
     if len(string.split(get_url(), "/")) > 3:
