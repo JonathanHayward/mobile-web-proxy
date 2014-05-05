@@ -5,8 +5,18 @@ import cgi, cPickle, os, re, string, time, urllib
 # The variables with UPPERCASE_NAMES below can be customized.
 
 CACHE_EXPIRATION = 3600
+DEFAULT_SITE = None # Change DEFAULT_SITE to a string with a full URL to have
+                    # the script's homepage proxy a given site instead of
+                    # asking for a URL: e.g.,
+                    #
+                    # DEFAULT_SITE = "http://JonathansCorner.com/"
+                    #
+                    # If you are using this script to try to make a
+                    # mobile-friendly version of your site, you will want to
+                    # set SHOULD_PROXY_EXTERNAL_LINKS just below to 0.
 MAXIMUM_TOKENS = 250
 SHOULD_CACHE = 0
+SHOULD_PROXY_EXTERNAL_LINKS = 1
 SHOULD_PAGE = 1
 
 # These variables should only be changed if you are moving files around.
@@ -120,16 +130,16 @@ def display_page_body():
               "value=\"" + str(get_maximum_tokens()) + "\"></p>"
         print "<input type=\"submit\" value=\"Go!\">"
         print "</form>"
+        print "<p>"
         if get_cgi("advanced") != "":
-            print "<p><a href=\"" + get_action_url() + \
-              "\">Simple Mode</a></p>"
+            print "<a href=\"" + get_action_url() + \
+              "\">Simple Mode</a><br>"
         else:
-            print "<p><a href=\"" + get_action_url() + \
-              "?advanced=yes\">Advanced Mode</a></p>"
+            print "<a href=\"" + get_action_url() + \
+              "?advanced=yes\">Advanced Mode</a><br>"
 
 def display_page_end():
-    if should_page() and get_cgi("url") != "":
-        print "<p>"
+    if should_page() and get_cgi("url", DEFAULT_SITE):
         if get_total_pages() == 1:
             print "Page 1 of 1."
         else:
@@ -149,11 +159,12 @@ def display_page_end():
                   "\">Next</a>."
             else:
                 print "Next."
-        print "</p>"
+        print "<br>"
+    print "<a href=\"http://www.addthis.com/bookmark.php?pub=&amp;r=bluedot&amp;url=" + urllib.quote("http://" + os.getenv("HTTP_HOST") + ACTION_URL + "?" + os.getenv("QUERY_STRING")) + "&amp;title=" + urllib.quote(get_title()) + "\">Bookmark</a><br>"
     if get_url() != "":
-        print "<p>Mobile web proxy for: <a href=\"" + get_url() + "\">" + \
+        print "Mobile web proxy for: <a href=\"" + get_url() + "\">" + \
           get_url() + "</a> (<a href=\"" + get_url() + \
-          "\">View original</a>).</p>"
+          "\">View original</a>).<br>"
     print read_file("footer.html")
 
 def filter(tag):
@@ -284,9 +295,12 @@ def get_total_pages():
         return 1
 
 def get_url():
-    interim = get_cgi("url")
-    if interim == "":
-        return ""
+    interim = get_cgi("url", DEFAULT_SITE)
+    if interim:
+        if DEFAULT_SITE:
+            return DEFAULT_SITE
+        else:
+            return ""
     else:
         if not ":" in interim:
             interim = "http://" + interim
@@ -419,8 +433,15 @@ def wrap_urls(tag):
                 url = inner_pieces.pop()
                 pieces += inner_pieces
                 if what_to_do == "wrap":
-                    pieces.append(get_action_url() + "?url=" + \
-                      urllib.quote(canonicalize(url)))
+                    if SHOULD_PROXY_EXTERNAL_LINKS:
+                        pieces.append(get_action_url() + "?url=" + \
+                          urllib.quote(canonicalize(url)))
+                    else:
+                        if re.match("\w+://\w+", url):
+                            pieces.append(url)
+                        else:
+                            pieces.append(get_action_url() + "?url=" + \
+                              urllib.quote(canonicalize(url)))
                 elif what_to_do == "canonicalize":
                     if ":" in url or "%57" in url:
                         pieces.append(url)
